@@ -9,6 +9,7 @@ Jamf Pro currently lacks observability around declarations made via Blueprints, 
 ## Problem Areas
 - I'm not sure if a race condition will develop with the reports. I would recommend creating the `Last Declaration Report` EA first and then all the supporting EAs. As far as I know, EAs run sequentially during an inventory update so they _should_ not have a race condition but further testing is always a good idea.
 - NULL entries will result in nothing reported in the EA, this is working as intended.
+- Some values like Device-ID are also reported in the Operating System section of a computer inventory record. Since it's referenced in the DDM status update, it's included in this project and serves as a cross reference in case both values do not match for some reason. In that case there may be a larger issue at play affecting the device's update declaration.
 
 ## Disclaimer 
 None of this is an official Jamf or Apple workflow. It's best to Query the API endpoint that Jamf designed for this purpose ($url/api/v1/ddm/$foundMgmtID/status-items) which will report the same information. The problem this is designed to fix is to be able to get more fleet wide information in an easy to manage report. However, the API is the most accurate reporting of these items and this workflow can potentially be behind since it's not recommended to update inventory more than once a day and DDM status updates happen more often than that.
