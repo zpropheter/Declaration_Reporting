@@ -3,6 +3,6 @@
 # Full JSON path
 JSON_FILE="/var/log/update_declarations.json"
 
-result=$(jq -r '."softwareupdate.install-state"' "$JSON_FILE")
+result=$(jq -r '."softwareupdate.pending-version" | .["os-version"]' "$JSON_FILE")
 
-echo "<result>$result</result>"
+echo "<result>$result</result>" 
