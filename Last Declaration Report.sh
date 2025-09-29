@@ -1,89 +1,54 @@
 #!/bin/bash
 
 OUTPUT_FILE="/var/log/update_declarations.json"
-TMP_PLIST=$(mktemp /tmp/su_block.XXXX.plist)
 
-# Extract the most recent Reporting status block
-BLOCK=$(log show --style syslog --info --source \
-  --predicate '(process == "SoftwareUpdateSubscriber") AND (eventMessage CONTAINS "softwareupdate.")' --last 1d \
-  | awk '/Reporting status {/,/} \(null\)/' \
-  | sed '1d;$d')
+LAST_BLOCK=$(log show --style syslog --info --source \
+  --predicate '(process == "SoftwareUpdateSubscriber") AND (eventMessage CONTAINS "softwareupdate.")' \
+  --last 1d \
+  | awk '
+    /Reporting status {/ {in_block=1; block=""; block=block $0 "\n"; next}
+    in_block {block=block $0 "\n"}
+    /\} \(null\)/ {if (in_block) {last_block=block; in_block=0}}
+    END {print last_block}
+  ')
 
-# Initialize plist
-echo "<plist version=\"1.0\"><dict>" > "$TMP_PLIST"
 
-# Stack to track nested dicts
-declare -a STACK
-STACK=("root")
+# Extract top-level values
+DEVICE_ID=$(echo "$LAST_BLOCK" | grep '"softwareupdate.device-id"' | tail -1 | awk -F'= ' '{gsub(/;|"/,"",$2); print $2}')
+INSTALL_STATE=$(echo "$LAST_BLOCK" | grep '"softwareupdate.install-state"' | tail -1 | awk -F'= ' '{gsub(/;|"/,"",$2); print $2}')
+TARGET_LOCAL_DATE=$(echo "$LAST_BLOCK" | grep '"softwareupdate.target-local-date-time"' | tail -1 | awk -F'= ' '{gsub(/;|"/,"",$2); print $2}')
 
-while IFS= read -r line; do
-    # Trim leading/trailing spaces and trailing semicolon
-    LINE=$(echo "$line" | sed 's/^[[:space:]]*//; s/;$//')
+# Nested: failure-reason -> reason
+FAILURE_REASON=$(echo "$LAST_BLOCK" | awk '/"softwareupdate.failure-reason"/,/}/' \
+  | grep 'reason' | awk -F'= ' '{gsub(/;|"/,"",$2); print $2}')
 
-    # Skip empty lines
-    [[ -z "$LINE" ]] && continue
+# Nested: install-reason -> reason
+INSTALL_REASON=$(echo "$LAST_BLOCK" | awk '/"softwareupdate.install-reason"/,/}/' \
+  | grep 'reason' | awk -F'= ' '{gsub(/;|"/,"",$2); print $2}')
 
-    # Match key = value
-    if [[ "$LINE" =~ \"([^\"]+)\"[[:space:]]*=[[:space:]]*(.*) ]]; then
-        KEY="${BASH_REMATCH[1]}"
-        VALUE="${BASH_REMATCH[2]}"
+# Nested: pending-version subkeys
+BUILD_VERSION=$(echo "$LAST_BLOCK" | awk '/"softwareupdate.pending-version"/,/}/' \
+  | grep 'build-version' | awk -F'= ' '{gsub(/;|"/,"",$2); print $2}')
+OS_VERSION=$(echo "$LAST_BLOCK" | awk '/"softwareupdate.pending-version"/,/}/' \
+  | grep 'os-version' | awk -F'= ' '{gsub(/;|"/,"",$2); print $2}')
+PENDING_DATE=$(echo "$LAST_BLOCK" | awk '/"softwareupdate.pending-version"/,/}/' \
+  | grep 'target-local-date-time' | awk -F'= ' '{gsub(/;|"/,"",$2); print $2}')
 
-        if [[ "$VALUE" == "{" ]]; then
-            # Start nested dict
-            echo "<key>$KEY</key><dict>" >> "$TMP_PLIST"
-            STACK+=("dict")
-            continue
-        elif [[ "$VALUE" == "(" ]]; then
-            # Start array
-            echo "<key>$KEY</key><array>" >> "$TMP_PLIST"
-            STACK+=("array")
-            continue
-        else
-            # Plain value
-            if [[ "$VALUE" =~ ^[0-9]+$ ]]; then
-                echo "<key>$KEY</key><integer>$VALUE</integer>" >> "$TMP_PLIST"
-            elif [[ "$VALUE" == "none" || "$VALUE" == "null" ]]; then
-                echo "<key>$KEY</key><string>$VALUE</string>" >> "$TMP_PLIST"
-            else
-                echo "<key>$KEY</key><string>$VALUE</string>" >> "$TMP_PLIST"
-            fi
-            continue
-        fi
-    fi
+# Write JSON
+cat <<EOF | tr -d '\000-\037' > "$OUTPUT_FILE"
+{
+  "softwareupdate.device-id": "$DEVICE_ID",
+  "softwareupdate.failure-reason": "$FAILURE_REASON",
+  "softwareupdate.install-reason": "$INSTALL_REASON",
+  "softwareupdate.install-state": "$INSTALL_STATE",
+  "softwareupdate.pending-version": {
+    "build-version": "$BUILD_VERSION",
+    "os-version": "$OS_VERSION",
+    "target-local-date-time": "$PENDING_DATE"
+  },
+  "softwareupdate.target-local-date-time": "$TARGET_LOCAL_DATE"
+}
+EOF
 
-    # Handle array elements: e.g., reason = ( ... )
-    if [[ "$LINE" =~ ^([^\=]+)[[:space:]]*=[[:space:]]*\((.*)\) ]]; then
-        KEY="${BASH_REMATCH[1]}"
-        ELEMENTS="${BASH_REMATCH[2]}"
-        echo "<key>$KEY</key><array>" >> "$TMP_PLIST"
-        for ITEM in $ELEMENTS; do
-            [[ -n "$ITEM" ]] && echo "<string>$ITEM</string>" >> "$TMP_PLIST"
-        done
-        echo "</array>" >> "$TMP_PLIST"
-        continue
-    fi
-
-    # Close dict or array
-    if [[ "$LINE" == "}" ]]; then
-        TYPE="${STACK[-1]}"
-        unset STACK[-1]
-        if [[ "$TYPE" == "dict" ]]; then
-            echo "</dict>" >> "$TMP_PLIST"
-        elif [[ "$TYPE" == "array" ]]; then
-            echo "</array>" >> "$TMP_PLIST"
-        fi
-    fi
-
-done <<< "$BLOCK"
-
-echo "</dict></plist>" >> "$TMP_PLIST"
-
-# Convert plist to JSON
-plutil -convert json -o "$OUTPUT_FILE" "$TMP_PLIST"
-
-# Clean up temp file
-rm "$TMP_PLIST"
-
-# Output timestamp for Jamf Extension Attribute
-TIMESTAMP=$(date +"%Y-%m-%d %H:%M:%S")
-echo "<result>$TIMESTAMP</result>"
+# Output timestamp
+echo "<result>$(date +"%Y-%m-%d %H:%M:%S")</result>"
