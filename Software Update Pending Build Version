@@ -1,0 +1,8 @@
+#!/bin/bash
+
+# Full JSON path
+JSON_FILE="/var/log/update_declarations.json"
+
+result=$(jq -r '."softwareupdate.pending-version" | .["build-version"]' "$JSON_FILE")
+
+echo "<result>$result</result>" 
