@@ -1,0 +1,9 @@
+#!/bin/bash
+
+# Full JSON path
+JSON_FILE="/var/log/update_declarations.json"
+
+# 1. Device ID
+result=$(jq -r '."softwareupdate.failure-reason".count' "$JSON_FILE")
+
+echo "<result>$result</result>"
