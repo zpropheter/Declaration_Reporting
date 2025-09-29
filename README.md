@@ -13,5 +13,5 @@ Jamf Pro currently lacks observability around declarations made via Blueprints, 
 ## Disclaimer 
 None of this is an official Jamf or Apple workflow. It's best to Query the API endpoint that Jamf designed for this purpose ($url/api/v1/ddm/$foundMgmtID/status-items) which will report the same information. The problem this is designed to fix is to be able to get more fleet wide information in an easy to manage report. However, the API is the most accurate reporting of these items and this workflow can potentially be behind since it's not recommended to update inventory more than once a day and DDM status updates happen more often than that.
 
-## In Progress
-I'm working on some more documentation that says what install.states mean what, for the most part they're plain text but there are a few outliers.
+## Documentation
+To better understand what the values reported are, please reference [Apple's Documentation](https://support.apple.com/guide/deployment/phases-of-apple-software-update-enforcement-dep225c4b7d4/web)
