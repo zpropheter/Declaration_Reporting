@@ -4,6 +4,6 @@
 JSON_FILE="/var/log/update_declarations.json"
 
 # 1. Device ID
-result=$(jq -r '."softwareupdate.failure-reason".count' "$JSON_FILE")
+result=$(jq -r '."softwareupdate.install-reason".reason' "$JSON_FILE")
 
 echo "<result>$result</result>"
